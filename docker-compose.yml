@@ -1,0 +1,42 @@
+# docker compose up --build            -> printer + SNMP
+# docker compose --profile multi up    -> also start a second printer
+#
+# Dashboard:  http://localhost:8080  (printer 1)   http://localhost:10080  (printer 2)
+
+services:
+  printer:
+    build: .
+    container_name: fakeprinter
+    command: ["--name", "Fake Printer 9000"]
+    ports:
+      - "9100:9100"   # raw / JetDirect
+      - "515:515"     # LPD
+      - "631:631"     # IPP
+      - "8080:80"     # dashboard
+    volumes:
+      - ./jobs:/jobs
+    restart: unless-stopped
+
+  snmp:
+    build:
+      context: .
+      dockerfile: Dockerfile.snmp
+    container_name: fakeprinter-snmp
+    ports:
+      - "161:161/udp"
+    restart: unless-stopped
+
+  # Second printer on shifted ports (offset 10000), starting in the paper-out state.
+  printer2:
+    profiles: ["multi"]
+    build: .
+    container_name: fakeprinter2
+    command: ["--offset", "10000", "--name", "Fake Receipt Printer", "--state", "paperout"]
+    ports:
+      - "19100:19100"
+      - "10515:10515"
+      - "10631:10631"
+      - "10080:10080"
+    volumes:
+      - ./jobs2:/jobs
+    restart: unless-stopped

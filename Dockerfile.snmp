@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+
+# snmpsim-lextudio is the maintained fork of snmpsim
+RUN pip install --no-cache-dir snmpsim-lextudio
+
+WORKDIR /data
+COPY public.snmprec /data/public.snmprec
+
+EXPOSE 161/udp
+CMD ["snmpsim-command-responder", "--data-dir=/data", "--agent-udpv4-endpoint=0.0.0.0:161"]
