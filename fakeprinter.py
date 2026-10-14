@@ -23,6 +23,7 @@ States (change at runtime with  curl 'http://localhost/set?state=jam'):
 """
 import argparse
 import html as htmllib
+import ipaddress
 import itertools
 import webbrowser
 import os
@@ -33,6 +34,7 @@ import struct
 import sys
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -42,6 +44,55 @@ CFG = {"jobdir": "jobs", "name": "Fake Printer 9000", "idle": 2.0, "ports": [], 
 COUNTER = itertools.count(1)
 JOBS = []  # (id, protocol, filename, size)
 LOCK = threading.Lock()
+
+
+# --------------------------------------------------------------------------
+# address discovery (public IP shown on the dashboard instead of localhost)
+# --------------------------------------------------------------------------
+IP = {"public": None, "lan": None, "override": None, "lookup": True}
+IP_SERVICES = ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com")
+
+
+def lan_ip():
+    """Address of the interface used for outbound traffic (no packets are sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def fetch_public_ip():
+    for url in IP_SERVICES:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "fakeprinter"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                ip = r.read().decode().strip()
+            ipaddress.ip_address(ip)  # reject anything that is not an IP
+            return ip
+        except Exception:
+            continue
+    return None
+
+
+def public_ip_loop():
+    while True:
+        ip = fetch_public_ip()
+        if ip:
+            IP["public"] = ip
+        time.sleep(600 if ip else 60)  # re-check: public IPs change, and retry quickly on failure
+
+
+def display_host():
+    """(host, source) used for the connection URIs on the dashboard."""
+    if IP["override"]:
+        return IP["override"], "manual"
+    if IP["public"]:
+        return IP["public"], "public"
+    return IP["lan"] or "127.0.0.1", "lan"
 
 
 # --------------------------------------------------------------------------
@@ -422,14 +473,31 @@ class Web(BaseHTTPRequestHandler):
 
     def _dashboard(self, partial=False):
         esc = htmllib.escape
-        badge = {
-            "ok": "bg-green-100 text-green-800", "paperout": "bg-amber-100 text-amber-800",
-            "jam": "bg-red-100 text-red-800", "offline": "bg-slate-200 text-slate-700",
-            "hang": "bg-purple-100 text-purple-800", "drop": "bg-pink-100 text-pink-800",
+        st = STATE["value"]
+        host, source = display_host()
+        port = dict(CFG["ports"])
+        pill = {
+            "ok": ("bg-emerald-500", "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20"),
+            "paperout": ("bg-amber-500", "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20"),
+            "jam": ("bg-red-500", "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20"),
+            "offline": ("bg-slate-400", "bg-slate-100 text-slate-700 ring-slate-500/20 dark:bg-slate-500/10 dark:text-slate-300 dark:ring-slate-400/20"),
+            "hang": ("bg-purple-500", "bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-500/10 dark:text-purple-300 dark:ring-purple-400/20"),
+            "drop": ("bg-pink-500", "bg-pink-50 text-pink-700 ring-pink-600/20 dark:bg-pink-500/10 dark:text-pink-300 dark:ring-pink-400/20"),
         }
-        card = "bg-white rounded-xl shadow-sm border border-slate-200"
-        host = self.headers.get("Host", "localhost").split(":")[0]
-        port = {n: p for n, p in CFG["ports"]}
+        proto_pill = {
+            "raw": "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300",
+            "lpd": "bg-violet-50 text-violet-700 ring-violet-600/20 dark:bg-violet-500/10 dark:text-violet-300",
+            "ipp": "bg-teal-50 text-teal-700 ring-teal-600/20 dark:bg-teal-500/10 dark:text-teal-300",
+        }
+        card = "rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+        muted = "text-slate-500 dark:text-slate-400"
+        dot, badge = pill[st]
+
+        def size(n):
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024 or unit == "GB":
+                    return f"{n} B" if unit == "B" else f"{n:.1f} {unit}"
+                n /= 1024
 
         def mtime(f):
             try:
@@ -437,74 +505,125 @@ class Web(BaseHTTPRequestHandler):
             except OSError:
                 return "?"
 
-        td = "px-5 py-2"
-        rows = "".join(
-            f"<tr class='border-t border-slate-100 hover:bg-slate-50'><td class='{td} text-slate-500'>{j}</td>"
-            f"<td class='{td} text-slate-500'>{mtime(f)}</td>"
-            f"<td class='{td}'><span class='px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-xs font-medium'>{p}</span></td>"
-            f"<td class='{td} font-mono text-sm'><a class='text-blue-600 hover:underline' "
-            f"href='/jobs/{esc(os.path.basename(f))}'>{esc(os.path.basename(f))}</a></td>"
-            f"<td class='{td} text-right tabular-nums'>{n}</td></tr>"
-            for j, p, f, n in reversed(JOBS[-100:])
-        ) or f"<tr><td colspan=5 class='{td} py-8 text-center text-slate-400'>No jobs received yet</td></tr>"
-        up = int(time.time() - CFG["started"])
-        details = [
-            ("Name", esc(CFG["name"])),
-            ("State", f"<span class='px-2 py-0.5 rounded-full text-xs font-medium {badge[STATE['value']]}'>{STATE['value']}</span>"),
-            ("Uptime", f"{up // 3600}h {up % 3600 // 60}m {up % 60}s"),
-            ("Jobs received", str(len(JOBS))),
-            ("Jobs directory", esc(os.path.abspath(CFG["jobdir"]))),
-        ]
+        def copy_btn(text):
+            return (f"<button type='button' data-copy='{esc(text)}' class='shrink-0 rounded-md px-2 py-1 text-xs "
+                    "font-medium text-slate-600 ring-1 ring-slate-300 hover:bg-slate-100 "
+                    "dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800'>Copy</button>")
+
+        # --- connection endpoints (all built from the public/override host) ---
+        endpoints = []
+        if "HTTP" in port:
+            endpoints.append(("Dashboard", f"http://{host}:{port['HTTP']}/"))
         if "raw/JetDirect" in port:
-            details.append(("Raw / JetDirect", f"socket://{host}:{port['raw/JetDirect']}"))
+            endpoints.append(("Raw / JetDirect", f"socket://{host}:{port['raw/JetDirect']}"))
         if "LPD" in port:
-            details.append(("LPD", f"lpd://{host}:{port['LPD']}/queue"))
+            endpoints.append(("LPD", f"lpd://{host}:{port['LPD']}/queue"))
         if "IPP" in port:
-            details.append(("IPP", f"ipp://{host}:{port['IPP']}/ipp/print"))
-        det = "".join(
-            "<div class='flex justify-between items-center gap-4 py-2 border-b border-slate-100 last:border-0'>"
-            f"<dt class='text-sm text-slate-500 shrink-0'>{k}</dt>"
-            f"<dd class='font-mono text-sm text-right break-all'>{v}</dd></div>"
-            for k, v in details)
+            endpoints.append(("IPP", f"ipp://{host}:{port['IPP']}/ipp/print"))
+        ep_html = "".join(
+            "<div class='flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0'>"
+            f"<div class='min-w-0'><div class='text-xs font-medium uppercase tracking-wide {muted}'>{k}</div>"
+            f"<div class='font-mono text-sm break-all'>{esc(v)}</div></div>{copy_btn(v)}</div>"
+            for k, v in endpoints)
+
+        if source == "lan":
+            note = ("<div class='mt-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 ring-1 ring-amber-600/20 "
+                    "dark:bg-amber-500/10 dark:text-amber-200'>Public IP could not be detected (no internet?). "
+                    "Showing the LAN address. Use <code>--public-host</code> to set it manually.</div>")
+        else:
+            note = (f"<div class='mt-4 rounded-lg bg-slate-50 p-3 text-xs {muted} ring-1 ring-slate-200 "
+                    "dark:bg-slate-800/50 dark:ring-slate-700'>Reachable from the internet only if your "
+                    "router or firewall forwards these ports to this machine.</div>")
+
+        src_label = {"public": "auto-detected", "manual": "manual", "lan": "LAN fallback"}[source]
+        up = int(time.time() - CFG["started"])
+        uptime = (f"{up // 86400}d " if up >= 86400 else "") + f"{up % 86400 // 3600}h {up % 3600 // 60}m {up % 60}s"
+        total_bytes = sum(j[3] for j in JOBS)
+
+        def stat(label, value, sub=""):
+            return (f"<div class='{card} p-5'><div class='text-xs font-medium uppercase tracking-wide {muted}'>{label}</div>"
+                    f"<div class='mt-1 text-2xl font-semibold tabular-nums break-all'>{value}</div>"
+                    f"<div class='mt-0.5 text-xs {muted}'>{sub}</div></div>")
+
+        stats = (stat("Public IP" if source != "lan" else "Address", esc(host), src_label)
+                 + stat("Uptime", uptime, f"since {time.strftime('%H:%M:%S', time.localtime(CFG['started']))}")
+                 + stat("Jobs received", str(len(JOBS)), "all protocols")
+                 + stat("Data received", size(total_bytes), "total"))
+
+        # --- state buttons ---
         btns = "".join(
-            f"<a href='/set?state={s}&back=1' class='px-3 py-1.5 rounded-md text-sm font-medium border "
-            + ("bg-slate-900 text-white border-slate-900" if s == STATE["value"]
-               else "bg-white text-slate-700 border-slate-300 hover:bg-slate-50")
-            + f"'>{s}</a>"
+            f"<a href='/set?state={s}&back=1' class='flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1 "
+            + ("bg-slate-900 text-white ring-slate-900 dark:bg-white dark:text-slate-900 dark:ring-white"
+               if s == st else
+               "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 "
+               "dark:ring-slate-700 dark:hover:bg-slate-800")
+            + f"'><span class='h-2 w-2 rounded-full {pill[s][0]}'></span>{s}</a>"
             for s in STATES)
-        th = "px-5 py-2 text-left font-medium"
+
+        # --- jobs table ---
+        td = "px-5 py-3"
+        th = "px-5 py-3 text-left font-medium"
+        rows = "".join(
+            f"<tr class='border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50'>"
+            f"<td class='{td} tabular-nums {muted}'>#{j}</td>"
+            f"<td class='{td} tabular-nums {muted}'>{mtime(f)}</td>"
+            f"<td class='{td}'><span class='rounded-full px-2 py-0.5 text-xs font-medium uppercase ring-1 ring-inset "
+            f"{proto_pill.get(p, proto_pill['raw'])}'>{esc(p)}</span></td>"
+            f"<td class='{td} font-mono'><a class='text-blue-600 hover:underline dark:text-blue-400' "
+            f"href='/jobs/{esc(os.path.basename(f))}'>{esc(os.path.basename(f))}</a></td>"
+            f"<td class='{td} text-right tabular-nums'>{size(n)}</td></tr>"
+            for j, p, f, n in reversed(JOBS[-100:])
+        ) or (f"<tr><td colspan=5 class='px-5 py-12 text-center {muted}'>No jobs received yet. "
+              f"Send one to <span class='font-mono'>{esc(endpoints[1][1]) if len(endpoints) > 1 else 'the printer'}</span></td></tr>")
+
+        printer_icon = ("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' "
+                        "stroke-linejoin='round' class='h-6 w-6'><path d='M6 9V3h12v6'/><rect x='3' y='9' width='18' height='8' rx='2'/>"
+                        "<path d='M6 14h12v7H6z'/></svg>")
         inner = (
-            "<header class='mb-6 flex items-center justify-between'><div>"
-            f"<h1 class='text-2xl font-bold'>{esc(CFG['name'])}</h1>"
-            "<p class='text-sm text-slate-500'>Fake network printer &middot; live dashboard</p></div>"
-            f"<span class='px-3 py-1 rounded-full text-sm font-medium {badge[STATE['value']]}'>{STATE['value']}</span>"
-            "</header><div class='grid gap-6 md:grid-cols-2'>"
-            f"<section class='{card} p-5'><h2 class='font-semibold mb-2'>Printer details</h2><dl>{det}</dl></section>"
-            f"<section class='{card} p-5'><h2 class='font-semibold mb-3'>Simulate a state</h2>"
+            "<header class='mb-8 flex flex-wrap items-center justify-between gap-4'><div class='flex items-center gap-4'>"
+            f"<div class='flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900'>{printer_icon}</div>"
+            f"<div><h1 class='text-2xl font-bold tracking-tight'>{esc(CFG['name'])}</h1>"
+            f"<p class='text-sm {muted}'>Virtual network printer &middot; live dashboard</p></div></div>"
+            f"<span class='inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-inset {badge}'>"
+            f"<span class='relative flex h-2 w-2'><span class='absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 {dot}'></span>"
+            f"<span class='relative inline-flex h-2 w-2 rounded-full {dot}'></span></span>{st}</span></header>"
+            f"<div class='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>{stats}</div>"
+            "<div class='mt-6 grid gap-6 lg:grid-cols-5'>"
+            f"<section class='{card} p-6 lg:col-span-3'><h2 class='mb-4 font-semibold'>Connect to this printer</h2>"
+            f"<div class='divide-y divide-slate-100 dark:divide-slate-800'>{ep_html}</div>{note}</section>"
+            f"<section class='{card} p-6 lg:col-span-2'><h2 class='mb-4 font-semibold'>Simulate a state</h2>"
             f"<div class='flex flex-wrap gap-2'>{btns}</div>"
-            "<p class='text-xs text-slate-500 mt-4'><b>paperout / jam / offline</b> change the status replies. "
+            f"<p class='mt-4 text-xs leading-relaxed {muted}'><b>paperout / jam / offline</b> change the status replies. "
             "<b>hang</b> accepts connections and never answers; <b>drop</b> closes them immediately "
-            "(applies to raw, LPD and IPP).</p></section></div>"
+            "(raw, LPD and IPP).</p></section></div>"
             f"<section class='{card} mt-6 overflow-hidden'>"
-            "<div class='px-5 py-4 flex items-center justify-between'><h2 class='font-semibold'>Received jobs</h2>"
-            f"<span class='text-sm text-slate-500'>{len(JOBS)} total &middot; newest first</span></div>"
-            "<div class='overflow-x-auto'><table class='w-full text-sm'><thead class='bg-slate-50 text-slate-500'><tr>"
+            "<div class='flex items-center justify-between px-6 py-4'><h2 class='font-semibold'>Received jobs</h2>"
+            f"<span class='text-sm {muted}'>{len(JOBS)} total &middot; newest first</span></div>"
+            f"<div class='overflow-x-auto'><table class='w-full text-sm'><thead class='bg-slate-50 {muted} dark:bg-slate-800/50'><tr>"
             f"<th class='{th}'>ID</th><th class='{th}'>Time</th><th class='{th}'>Protocol</th>"
-            f"<th class='{th}'>File</th><th class='{th} text-right'>Bytes</th></tr></thead>"
+            f"<th class='{th}'>File</th><th class='{th} text-right'>Size</th></tr></thead>"
             f"<tbody>{rows}</tbody></table></div></section>"
         )
         if partial:
             return inner
+        js = """
+document.addEventListener('click',e=>{const b=e.target.closest('[data-copy]');if(!b)return;
+const t=b.dataset.copy,done=()=>{b.textContent='Copied';setTimeout(()=>{b.textContent='Copy'},1200)};
+if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(done)}
+else{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';
+document.body.appendChild(a);a.select();try{document.execCommand('copy');done()}catch(_){}a.remove()}});
+setInterval(async()=>{try{const r=await fetch('/?partial=1');
+if(r.ok)document.getElementById('live').innerHTML=await r.text()}catch(e){}},3000)
+"""
         return (
             "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{esc(CFG['name'])}</title><script src='https://cdn.tailwindcss.com'></script></head>"
-            "<body class='bg-slate-50 text-slate-800 antialiased'><main class='max-w-5xl mx-auto p-6'>"
+            "<body class='bg-slate-100 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-100'>"
+            "<main class='mx-auto max-w-6xl p-6 sm:p-8'>"
             f"<div id='live'>{inner}</div>"
-            "<p class='text-xs text-slate-400 mt-4'>Updates every 3 seconds</p></main>"
-            "<script>setInterval(async()=>{try{const r=await fetch('/?partial=1');"
-            "if(r.ok)document.getElementById('live').innerHTML=await r.text()}catch(e){}},3000)</script>"
-            "</body></html>"
+            f"<p class='mt-6 text-center text-xs {muted}'>Updates every 3 seconds</p></main>"
+            f"<script>{js}</script></body></html>"
         )
 
 
@@ -521,11 +640,18 @@ def main():
     ap.add_argument("--jobs", default="jobs", help="directory for received jobs")
     ap.add_argument("--state", default="ok", choices=STATES)
     ap.add_argument("--name", default=CFG["name"])
+    ap.add_argument("--public-host", help="IP or hostname to show on the dashboard (skips auto-detection)")
+    ap.add_argument("--no-public-lookup", action="store_true", help="never contact external services to find the public IP")
     ap.add_argument("--open", action="store_true", help="open the dashboard in a browser on start")
     ap.add_argument("--idle", type=float, default=2.0, help="seconds of silence that end a raw job")
     args = ap.parse_args()
     CFG.update(jobdir=args.jobs, name=args.name, idle=args.idle)
     STATE["value"] = args.state
+    IP["lan"] = lan_ip()
+    IP["override"] = args.public_host
+    if not args.public_host and not args.no_public_lookup:
+        IP["public"] = fetch_public_ip()  # first lookup up front so the startup banner is accurate
+        threading.Thread(target=public_ip_loop, daemon=True).start()
 
     services = [
         ("raw/JetDirect", 9100, lambda p: TCP((args.host, p), Raw)),
@@ -550,6 +676,8 @@ def main():
     web = dict(CFG["ports"]).get("HTTP")
     if web:
         print(f"Dashboard: http://localhost:{web}/")
+        shown, source = display_host()
+        print(f"Shown on dashboard ({source}): http://{shown}:{web}/")
         if args.open:
             webbrowser.open(f"http://localhost:{web}/")
     try:

@@ -14,7 +14,7 @@ services:
       - "631:631"     # IPP
       - "8080:80"     # dashboard
     volumes:
-      - ./jobs:/jobs
+      - printer_jobs:/jobs
     restart: unless-stopped
 
   snmp:
@@ -38,5 +38,11 @@ services:
       - "10631:10631"
       - "10080:10080"
     volumes:
-      - ./jobs2:/jobs
+      - printer2_jobs:/jobs
     restart: unless-stopped
+
+# Named volumes: managed by Docker, survive `docker compose down` and rebuilds.
+# (`docker compose down -v` deletes them.)
+volumes:
+  printer_jobs:
+  printer2_jobs:
