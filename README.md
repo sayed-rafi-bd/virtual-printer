@@ -1,13 +1,13 @@
-# Fake printer toolkit
+# Virtual Printer
 
-One Python script (`fakeprinter.py`, no dependencies) plus a setup script for the pieces
+One Python script (`virtualprinter.py`, no dependencies) plus a setup script for the pieces
 that need system services.
 
 ## Quick start
 
 ```bash
-sudo python3 fakeprinter.py              # real ports: 9100, 515, 631, 80
-python3 fakeprinter.py --offset 10000    # no root: 19100, 10515, 10631, 10080
+sudo python3 virtualprinter.py              # real ports: 9100, 515, 631, 80
+python3 virtualprinter.py --offset 10000    # no root: 19100, 10515, 10631, 10080
 ```
 
 Received jobs are saved in `./jobs/` (file type sniffed: pdf, ps, pjl, zpl, escpos, ...).
@@ -18,7 +18,8 @@ The server prints `Dashboard: http://localhost:<port>/` on start (port 80, or 10
 `--offset 10000`); add `--open` to launch it in your browser automatically. The page shows
 live stats (address, uptime, jobs, data received), copyable connection URIs for raw/LPD/IPP,
 buttons to switch the error state, and a live job list (newest first, auto-refresh every 3s)
-where each job can be downloaded. It follows your system light/dark theme.
+where each job can be downloaded. It has a **light and dark theme** with a switcher in the top bar
+(Light / System / Dark); the choice is remembered in your browser, and "System" follows your OS setting.
 
 ### Public IP instead of localhost
 
@@ -27,9 +28,9 @@ at startup (ipify.org, with ifconfig.me and icanhazip.com as fallbacks) and re-c
 10 minutes. If detection fails (offline), the LAN address is shown instead, with a notice.
 
 ```bash
-python3 fakeprinter.py                              # auto-detect public IP
-python3 fakeprinter.py --public-host printer.example.com   # show a fixed IP / hostname
-python3 fakeprinter.py --no-public-lookup           # never contact external services
+python3 virtualprinter.py                              # auto-detect public IP
+python3 virtualprinter.py --public-host printer.example.com   # show a fixed IP / hostname
+python3 virtualprinter.py --no-public-lookup           # never contact external services
 ```
 
 Use `--public-host` behind NAT/Docker setups where the detected IP is not the one clients
@@ -37,19 +38,19 @@ should use. The IP is only *displayed*: the printer is reachable from the intern
 your router/firewall forwards the ports. The dashboard and `/set` endpoint have no
 authentication, so do not expose port 80 publicly without restricting access.
 
-The page is styled with Tailwind CSS loaded from its CDN, so the browser needs internet access
-to get the styling. Offline it still works, just unstyled.
+The dashboard is fully self-contained (inline CSS, JS and icons, no CDN), so it looks the same
+offline.
 
 ## Protocol coverage
 
 | Protocol | Port | Provided by |
 |---|---|---|
-| Raw / JetDirect (AppSocket) | 9100 | `fakeprinter.py` |
-| LPD / LPR | 515 | `fakeprinter.py` |
-| IPP (HTTP transport) | 631 | `fakeprinter.py` (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs) |
-| HTTP embedded page | 80 | `fakeprinter.py` |
+| Raw / JetDirect (AppSocket) | 9100 | `virtualprinter.py` |
+| LPD / LPR | 515 | `virtualprinter.py` |
+| IPP (HTTP transport) | 631 | `virtualprinter.py` (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs) |
+| HTTP embedded page | 80 | `virtualprinter.py` |
 | mDNS / Bonjour / AirPrint discovery | 5353/udp | `setup.sh avahi` |
-| SMB / Windows printer sharing | 445 | `setup.sh cups samba` (SMB -> CUPS -> raw 9100 -> fakeprinter) |
+| SMB / Windows printer sharing | 445 | `setup.sh cups samba` (SMB -> CUPS -> raw 9100 -> Virtual Printer) |
 | SNMP Printer-MIB | 161/udp | `setup.sh snmp` + `public.snmprec` |
 | USB | - | `setup.sh usb` (kernel `dummy_hcd` + `g_printer`) |
 
@@ -62,7 +63,7 @@ Not included: WS-Discovery/WSD (3702), IPPS/TLS, FTP printing, Bluetooth.
 - **ZPL**: `~HS` host status, `~HI` identification, `~HQES`
 
 Status codes are representative, not copied from a specific model. Adjust the tables at the
-top of `fakeprinter.py` to match the device you are emulating.
+top of `virtualprinter.py` to match the device you are emulating.
 
 ## Error injection
 
@@ -104,7 +105,7 @@ docker compose --profile multi up      # also a second printer on ports 19100/10
 - Jobs are stored in Docker named volumes (`printer_jobs`, `printer2_jobs`), so they survive
   `docker compose down` and rebuilds. `docker compose down -v` deletes them. To get files out:
   download them from the dashboard, or run
-  `docker cp fakeprinter:/jobs ./jobs-backup`, or
+  `docker cp virtualprinter:/jobs ./jobs-backup`, or
   `docker run --rm -v virtual-printer_printer_jobs:/jobs -v "$PWD":/out alpine cp -r /jobs /out`
   (the volume name is prefixed with the compose project name, see `docker volume ls`).
   To use a host folder again, replace `printer_jobs:/jobs` with `./jobs:/jobs`.

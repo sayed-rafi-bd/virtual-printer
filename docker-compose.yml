@@ -6,8 +6,8 @@
 services:
   printer:
     build: .
-    container_name: fakeprinter
-    command: ["--name", "Fake Printer 9000"]
+    container_name: virtualprinter
+    command: ["--name", "Virtual Printer"]
     ports:
       - "9100:9100"   # raw / JetDirect
       - "515:515"     # LPD
@@ -21,7 +21,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.snmp
-    container_name: fakeprinter-snmp
+    container_name: virtualprinter-snmp
     ports:
       - "161:161/udp"
     restart: unless-stopped
@@ -30,8 +30,8 @@ services:
   printer2:
     profiles: ["multi"]
     build: .
-    container_name: fakeprinter2
-    command: ["--offset", "10000", "--name", "Fake Receipt Printer", "--state", "paperout"]
+    container_name: virtualprinter2
+    command: ["--offset", "10000", "--name", "Virtual Receipt Printer", "--state", "paperout"]
     ports:
       - "19100:19100"
       - "10515:10515"

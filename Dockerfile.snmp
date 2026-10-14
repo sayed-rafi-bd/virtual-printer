@@ -9,13 +9,13 @@ WORKDIR /data
 # SNMP Printer-MIB data (community "public"), embedded so no extra file is needed.
 # OIDs must stay sorted. Same content as public.snmprec.
 COPY <<'EOF' /data/public.snmprec
-1.3.6.1.2.1.1.1.0|4|Fake Printer 9000 MFP
+1.3.6.1.2.1.1.1.0|4|Virtual Printer MFP
 1.3.6.1.2.1.1.3.0|67|123456
-1.3.6.1.2.1.1.5.0|4|FAKEPRN01
-1.3.6.1.2.1.25.3.2.1.3.1|4|Fake Printer 9000
+1.3.6.1.2.1.1.5.0|4|VIRTPRN01
+1.3.6.1.2.1.25.3.2.1.3.1|4|Virtual Printer
 1.3.6.1.2.1.25.3.2.1.5.1|2|2
 1.3.6.1.2.1.25.3.5.1.1.1|2|3
-1.3.6.1.2.1.43.5.1.1.16.1|4|Fake Printer 9000
+1.3.6.1.2.1.43.5.1.1.16.1|4|Virtual Printer
 1.3.6.1.2.1.43.11.1.1.6.1.1|4|Black Toner Cartridge
 1.3.6.1.2.1.43.11.1.1.8.1.1|2|10000
 1.3.6.1.2.1.43.11.1.1.9.1.1|2|7500
