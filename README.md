@@ -1,11 +1,13 @@
 # Virtual Printer
 
-One Python script (`virtualprinter.py`, no dependencies) plus a setup script for the pieces
-that need system services.
+One Python script (`virtualprinter.py`) plus a `web/` folder with the dashboard's templates and
+styles, and a setup script for the pieces that need system services. The printer itself has no
+dependencies; only the web dashboard needs [Jinja2](https://jinja.palletsprojects.com/).
 
 ## Quick start
 
 ```bash
+pip install -r requirements.txt          # Jinja2, for the dashboard only
 sudo python3 virtualprinter.py              # real ports: 9100, 515, 631, 80
 python3 virtualprinter.py --offset 10000    # no root: 19100, 10515, 10631, 10080
 ```
@@ -18,7 +20,7 @@ The server prints `Dashboard: http://localhost:<port>/` on start (port 80, or 10
 `--offset 10000`); add `--open` to launch it in your browser automatically. The page shows
 live stats (address, uptime, jobs, data received), copyable connection URIs for raw/LPD/IPP,
 buttons to switch the error state, and a live job list (newest first, auto-refresh every 3s)
-where each job can be downloaded. It has a **light and dark theme** with a switcher in the top bar
+where each job can be downloaded. It has a **light and dark theme** with a switcher next to the status badge
 (Light / System / Dark); the choice is remembered in your browser, and "System" follows your OS setting.
 
 ### Public IP instead of localhost
@@ -38,8 +40,60 @@ should use. The IP is only *displayed*: the printer is reachable from the intern
 your router/firewall forwards the ports. The dashboard and `/set` endpoint have no
 authentication, so do not expose port 80 publicly without restricting access.
 
-The dashboard is fully self-contained (inline CSS, JS and icons, no CDN), so it looks the same
-offline.
+The dashboard needs no internet (no CDN): the CSS, JS and icons are served from `web/static/`.
+Styling is [Tailwind CSS](https://tailwindcss.com) v4, precompiled into `web/static/tailwind.css`.
+Without Jinja2 installed the printer still works; the dashboard shows a page telling you to
+install it.
+
+## Customizing the dashboard
+
+The page is a set of Jinja2 templates plus plain CSS and JS, all in `web/`:
+
+```
+web/
+  templates/
+    base.html        page shell: <head>, footer, scripts
+    dashboard.html   the page (wraps the live area)
+    _live.html       hero (with the theme switcher), stats, connect panel, state buttons, jobs table
+    _icons.html      inline SVG icon macro: {{ icon("printer") }}
+  static/
+    dashboard.css    colors are CSS variables at the top (light + dark)
+    tailwind.css     compiled Tailwind output (generated, do not edit by hand)
+    dashboard.js     theme switcher, copy buttons, 3-second live refresh
+    favicon.svg
+```
+
+To make your own version, copy the folder and point the server at it:
+
+```bash
+cp -r web my-web
+python3 virtualprinter.py --web my-web
+```
+
+Templates are re-read on every request and static files are never cached, so **edit, save, refresh**:
+no restart. If a template has an error, the browser shows the message (with file and line) and the
+server keeps running.
+
+- **Re-color / re-brand:** the styling is Tailwind utility classes in the templates (e.g. swap
+  `indigo-600` for `emerald-600`, and the matching `dark:` classes). Status colors are in the `tone`
+  dict at the top of `_live.html`. After changing classes, rebuild the CSS (see below).
+- **Change the layout:** edit `_live.html`. The variables it can use are listed at the top of that
+  file (`state`, `endpoints`, `jobs`, `host`, ...). All values are HTML-escaped automatically.
+- **Add data:** add a key to `dashboard_context()` in `virtualprinter.py`, then use it as `{{ key }}`.
+- **Docker:** uncomment `./web:/app/web:ro` in `docker-compose.yml` to mount your folder.
+
+### Styling with Tailwind
+
+The compiled `web/static/tailwind.css` is committed, so running or deploying the printer needs no Node.
+Only when you add or change utility classes in `web/templates/` or `dashboard.js`:
+
+```bash
+npm install          # once
+npm run build:css    # or: npm run watch:css while editing
+```
+
+`tailwind.input.css` is the only source file (it scans the templates and sets up the `data-theme`
+dark-mode variant). Write full class names in templates; Tailwind cannot see names built by string concatenation.
 
 ## Protocol coverage
 

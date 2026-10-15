@@ -1,0 +1,151 @@
+{#- ==========================================================================
+    The live area of the dashboard. It is rendered inside #live on the first page load and
+    then re-fetched on its own (GET /?partial=1) every few seconds.
+
+    Variables passed in by virtualprinter.py:
+
+      app_name       "Virtual Printer"
+      printer_name   the --name given on the command line
+      state          ok | paperout | jam | offline | hang | drop
+      state_label    human label for the state ("Ready", "Paper jam", ...)
+      states         list of {name, description, active}, one per simulatable state
+      host           address shown in the connection URIs (public IP, --public-host, or LAN)
+      source         "public" | "manual" | "lan"      (where `host` came from)
+      source_label   "auto-detected" | "manual" | "LAN fallback"
+      uptime         "1h 2m 3s"          started   "HH:MM:SS"
+      endpoints      list of {label, url}   (Dashboard, Raw / JetDirect, LPD, IPP)
+      raw_port       raw/JetDirect port number, or none if that listener failed to start
+      jobs_count     total number of jobs received
+      jobs_size      total bytes received, formatted ("12.3 KB")
+      jobs           newest first, at most 100: list of {id, time, proto, ext, filename, size}
+    ========================================================================== -#}
+{% from "_icons.html" import icon %}
+
+{#- Tailwind only generates classes it can see as complete strings, so every status color is spelled out here. -#}
+{% set tone = {
+  'ok':      {'dot': 'bg-emerald-500', 'pill': 'text-emerald-700 bg-emerald-500/10 border-emerald-500/30 dark:text-emerald-300', 'active': 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-500/10', 'chk': 'text-emerald-500'},
+  'paperout':{'dot': 'bg-amber-500',   'pill': 'text-amber-700 bg-amber-500/10 border-amber-500/30 dark:text-amber-300',       'active': 'border-amber-500 ring-1 ring-amber-500 bg-amber-500/10',       'chk': 'text-amber-500'},
+  'jam':     {'dot': 'bg-red-500',     'pill': 'text-red-700 bg-red-500/10 border-red-500/30 dark:text-red-300',               'active': 'border-red-500 ring-1 ring-red-500 bg-red-500/10',             'chk': 'text-red-500'},
+  'offline': {'dot': 'bg-slate-400',   'pill': 'text-slate-600 bg-slate-400/10 border-slate-400/30 dark:text-slate-300',       'active': 'border-slate-400 ring-1 ring-slate-400 bg-slate-400/10',       'chk': 'text-slate-400'},
+  'hang':    {'dot': 'bg-violet-500',  'pill': 'text-violet-700 bg-violet-500/10 border-violet-500/30 dark:text-violet-300',   'active': 'border-violet-500 ring-1 ring-violet-500 bg-violet-500/10',   'chk': 'text-violet-500'},
+  'drop':    {'dot': 'bg-pink-500',    'pill': 'text-pink-700 bg-pink-500/10 border-pink-500/30 dark:text-pink-300',           'active': 'border-pink-500 ring-1 ring-pink-500 bg-pink-500/10',         'chk': 'text-pink-500'},
+} %}
+{% set chips = {
+  'raw': 'text-sky-700 bg-sky-500/10 dark:text-sky-300',
+  'lpd': 'text-violet-700 bg-violet-500/10 dark:text-violet-300',
+  'ipp': 'text-teal-700 bg-teal-500/10 dark:text-teal-300',
+  'x':   'text-slate-600 bg-slate-400/10 dark:text-slate-300',
+} %}
+{% set card = "rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" %}
+{% set label = "text-[11.5px] font-semibold uppercase tracking-[.06em] text-slate-500 dark:text-slate-400" %}
+
+{% macro dot(bg, pulse=false) -%}
+<span class="relative inline-block size-2 shrink-0 rounded-full {{ bg }}">{% if pulse %}<span class="absolute inset-0 animate-ping rounded-full {{ bg }} motion-reduce:animate-none"></span>{% endif %}</span>
+{%- endmacro %}
+
+{% macro stat(ic, name, value, hint) %}
+<div class="flex flex-col items-start gap-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:flex-row sm:gap-3.5 sm:p-[18px] dark:border-slate-800 dark:bg-slate-900">
+  <div class="grid size-[38px] shrink-0 place-items-center rounded-[11px] bg-indigo-50 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400">{{ icon(ic, "size-[18px]") }}</div>
+  <div class="min-w-0">
+    <div class="text-[11.5px] font-semibold uppercase tracking-[.06em] text-slate-500 dark:text-slate-400">{{ name }}</div>
+    <div class="mt-0.5 text-lg leading-tight font-semibold tracking-tight [overflow-wrap:anywhere] tabular-nums sm:text-[21px]">{{ value }}</div>
+    <div class="text-xs text-slate-500 dark:text-slate-400">{{ hint }}</div>
+  </div>
+</div>
+{% endmacro %}
+
+<div class="mb-[22px] flex flex-wrap items-center justify-between gap-4">
+  <div class="flex min-w-0 items-center gap-4">
+    <div class="grid size-14 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-indigo-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-indigo-400">{{ icon("printer", "size-7") }}</div>
+    <div>
+      <h1 class="m-0 text-[22px] leading-tight font-bold tracking-tight [overflow-wrap:anywhere] sm:text-[26px]">{{ printer_name }}</h1>
+      <p class="mt-0.5 text-slate-500 dark:text-slate-400">Virtual network printer &middot; live dashboard</p>
+    </div>
+  </div>
+  <div class="flex flex-wrap items-center gap-3">
+    {% set tb = "grid h-7 w-8 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-slate-500 hover:text-slate-900 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-600 dark:text-slate-400 dark:hover:text-slate-100 dark:aria-pressed:bg-indigo-400/15 dark:aria-pressed:text-indigo-400" %}
+    <div class="inline-flex gap-0.5 rounded-[11px] border border-slate-200 bg-white p-[3px] dark:border-slate-800 dark:bg-slate-900" role="group" aria-label="Color theme">
+      <button type="button" class="{{ tb }}" data-theme-set="light" aria-pressed="false" title="Light" aria-label="Light theme">{{ icon("sun", "size-4") }}</button>
+      <button type="button" class="{{ tb }}" data-theme-set="system" aria-pressed="false" title="System" aria-label="Match system theme">{{ icon("monitor", "size-4") }}</button>
+      <button type="button" class="{{ tb }}" data-theme-set="dark" aria-pressed="false" title="Dark" aria-label="Dark theme">{{ icon("moon", "size-4") }}</button>
+    </div>
+    <span class="inline-flex items-center gap-[9px] rounded-full border px-3.5 py-1.5 text-[13px] font-semibold {{ tone[state].pill }}">{{ dot(tone[state].dot, true) }}{{ state_label }}</span>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 gap-2.5 min-[481px]:gap-4 lg:grid-cols-4">
+  {{ stat("globe", "Address" if source == "lan" else "Public IP", host, source_label) }}
+  {{ stat("clock", "Uptime", uptime, "since " ~ started) }}
+  {{ stat("file", "Jobs received", jobs_count, "all protocols") }}
+  {{ stat("drive", "Data received", jobs_size, "total") }}
+</div>
+
+<div class="mt-4 grid items-start gap-4 lg:grid-cols-[3fr_2fr]">
+  <section class="{{ card }} px-[22px] py-5">
+    <h2 class="m-0 mb-3.5 text-[15px] font-semibold">Connect to this printer</h2>
+    {% for ep in endpoints %}
+    <div class="flex items-center justify-between gap-3 border-t border-slate-200 py-3 first:border-t-0 first:pt-0 dark:border-slate-800">
+      <div class="min-w-0">
+        <div class="{{ label }}">{{ ep.label }}</div>
+        <div class="mt-0.5 font-mono text-[13px] [overflow-wrap:anywhere]">{{ ep.url }}</div>
+      </div>
+      <button type="button" class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border border-slate-300 bg-white px-2.5 py-1.5 text-[12.5px] font-medium text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800" data-copy="{{ ep.url }}" title="Copy to clipboard">{{ icon("copy", "size-3.5") }}<span>Copy</span></button>
+    </div>
+    {% endfor %}
+    {% if source == "lan" %}
+    <div class="mt-4 rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-[13px] py-[11px] text-[12.5px] text-amber-700 dark:text-amber-300">Public IP could not be detected (no internet?). Showing the LAN address. Use <code class="font-mono text-[.92em]">--public-host</code> to set it manually.</div>
+    {% else %}
+    <div class="mt-4 rounded-[10px] border border-slate-200 bg-slate-50 px-[13px] py-[11px] text-[12.5px] text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">Reachable from the internet only if your router or firewall forwards these ports to this machine.</div>
+    {% endif %}
+  </section>
+
+  <section class="{{ card }} px-[22px] py-5">
+    <h2 class="m-0 mb-3.5 text-[15px] font-semibold">Simulate a state</h2>
+    <div class="grid grid-cols-2 gap-2.5">
+      {% for s in states %}
+      <a class="flex flex-col gap-0.5 rounded-xl border px-3 py-2.5 no-underline transition-colors {% if s.active %}{{ tone[s.name].active }}{% else %}border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800{% endif %} text-slate-900 dark:text-slate-100" href="/set?state={{ s.name }}&back=1"{% if s.active %} aria-current="true"{% endif %}>
+        <b class="flex items-center gap-2 text-[13.5px] font-semibold">{{ dot(tone[s.name].dot) }}{{ s.name }}{% if s.active %}{{ icon("check", "ml-auto size-3.5 " ~ tone[s.name].chk) }}{% endif %}</b>
+        <small class="text-xs text-slate-500 dark:text-slate-400">{{ s.description }}</small>
+      </a>
+      {% endfor %}
+    </div>
+    <p class="mt-3.5 mb-0 text-xs leading-relaxed text-slate-500 dark:text-slate-400"><b>paperout / jam / offline</b> change the status replies. <b>hang</b> accepts connections and never answers; <b>drop</b> closes them immediately (raw, LPD and IPP).</p>
+  </section>
+</div>
+
+<section class="{{ card }} mt-4 overflow-hidden">
+  <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-[22px] py-4">
+    <h2 class="m-0 text-[15px] font-semibold">Received jobs</h2>
+    <span class="inline-block rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400">{{ jobs_count }} total &middot; newest first{% if jobs_count > jobs|length %} &middot; showing latest {{ jobs|length }}{% endif %}</span>
+  </div>
+  {% if jobs %}
+  {% set th = "whitespace-nowrap bg-slate-50 px-[22px] py-2.5 text-left text-[11.5px] font-semibold uppercase tracking-[.06em] text-slate-500 dark:bg-slate-800/50 dark:text-slate-400" %}
+  {% set td = "whitespace-nowrap border-t border-slate-200 px-[22px] py-3 dark:border-slate-800" %}
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-[13.5px]">
+      <thead>
+        <tr><th class="{{ th }}">ID</th><th class="{{ th }}">Time</th><th class="{{ th }}">Protocol</th><th class="{{ th }}">Type</th><th class="{{ th }}">File</th><th class="{{ th }} !text-right">Size</th></tr>
+      </thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+          <td class="{{ td }} text-slate-500 tabular-nums dark:text-slate-400">#{{ j.id }}</td>
+          <td class="{{ td }} text-slate-500 tabular-nums dark:text-slate-400">{{ j.time }}</td>
+          <td class="{{ td }}"><span class="inline-block rounded-md px-2 py-px text-[11.5px] font-bold tracking-[.04em] uppercase {{ chips[j.proto if j.proto in ('raw', 'lpd', 'ipp') else 'x'] }}">{{ j.proto }}</span></td>
+          <td class="{{ td }} font-mono text-slate-500 dark:text-slate-400">{{ j.ext }}</td>
+          <td class="{{ td }} font-mono"><a class="text-indigo-600 hover:underline dark:text-indigo-300" href="/jobs/{{ j.filename }}" download>{{ j.filename }}</a></td>
+          <td class="{{ td }} text-right tabular-nums">{{ j.size }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-[22px] py-11 text-center text-slate-500 dark:text-slate-400">
+    {{ icon("inbox", "mx-auto mb-2 size-9 text-slate-300 dark:text-slate-700") }}
+    <p class="my-0.5"><b>No jobs received yet</b></p>
+    <p class="my-0.5">Print to any of the endpoints above to see it appear here.</p>
+    {% if raw_port %}<code class="mt-2.5 inline-block rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-[.92em] text-slate-900 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-100">echo hello | nc {{ host }} {{ raw_port }}</code>{% endif %}
+  </div>
+  {% endif %}
+</section>

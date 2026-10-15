@@ -1,0 +1,30 @@
+{#- Page shell: <head>, footer, scripts. Child templates fill {% block content %}.
+    Styling is Tailwind CSS (utility classes in the templates), compiled to static/tailwind.css.
+    See README: "Styling with Tailwind".
+    (The theme switcher lives in _live.html, next to the status pill.) -#}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{{ title }}{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  {#- Applies a saved theme before first paint so there is no flash of the wrong colors. -#}
+  <script>try{var t=localStorage.getItem('vp-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <link rel="stylesheet" href="/static/tailwind.css">
+</head>
+<body class="min-h-screen bg-slate-100 bg-[radial-gradient(900px_380px_at_50%_-140px,rgb(79_70_229/0.09),transparent)] bg-no-repeat font-sans text-sm leading-normal text-slate-900 antialiased dark:bg-[#0b0e14] dark:bg-[radial-gradient(900px_380px_at_50%_-140px,rgb(129_140_248/0.14),transparent)] dark:text-slate-100">
+  <main class="mx-auto max-w-[1120px] px-4 pt-6 pb-8 sm:px-6 sm:pt-9 sm:pb-10">
+    {% block content %}{% endblock %}
+    <div class="group mt-[22px] flex items-center justify-center gap-[9px] text-xs text-slate-500 dark:text-slate-400" id="foot">
+      <span class="relative inline-block size-2 shrink-0 rounded-full bg-emerald-500 group-[.err]:bg-red-500">
+        <span class="absolute inset-0 animate-ping rounded-full bg-emerald-500 group-[.err]:bg-red-500 motion-reduce:animate-none"></span>
+      </span>
+      <span id="upd">Live &middot; refreshes every 3 seconds</span>
+    </div>
+  </main>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

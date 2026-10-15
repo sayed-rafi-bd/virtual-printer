@@ -1,7 +1,13 @@
 FROM python:3.12-slim
 
 WORKDIR /app
+
+# Jinja2 renders the web dashboard (the printer itself has no dependencies)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY virtualprinter.py .
+COPY web/ web/
 RUN mkdir /jobs
 
 # raw/JetDirect, LPD, IPP, dashboard

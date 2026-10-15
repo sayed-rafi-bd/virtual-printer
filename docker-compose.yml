@@ -15,6 +15,7 @@ services:
       - "8080:80"     # dashboard
     volumes:
       - printer_jobs:/jobs
+      # - ./web:/app/web:ro   # uncomment to customize the dashboard (edit ./web, refresh the browser)
     restart: unless-stopped
 
   snmp:
