@@ -24,10 +24,10 @@ EOF
 # strip Windows line endings if this file was checked out with CRLF
 RUN sed -i 's/\r$//' /data/public.snmprec
 
-EXPOSE 10161/udp
+EXPOSE 11161/udp
 
-# snmpsim binds UDP 10161 as root, then must drop to an unprivileged user (it refuses to run otherwise).
+# snmpsim binds UDP 11161 as root, then must drop to an unprivileged user (it refuses to run otherwise).
 # It also writes index files, so give that user a writable cache dir.
 RUN mkdir -p /tmp/snmpsim-cache && chmod 777 /tmp/snmpsim-cache
 CMD ["snmpsim-command-responder", "--data-dir=/data", "--cache-dir=/tmp/snmpsim-cache", \
-     "--agent-udpv4-endpoint=0.0.0.0:10161", "--process-user=nobody", "--process-group=nogroup"]
+     "--agent-udpv4-endpoint=0.0.0.0:11161", "--process-user=nobody", "--process-group=nogroup"]

@@ -1,7 +1,7 @@
 # docker compose up --build            -> printer + SNMP
 # docker compose --profile multi up    -> also start a second printer
 #
-# Dashboard:  http://localhost:10080  (printer 1)   http://localhost:20080  (printer 2)
+# Dashboard:  http://localhost:11080  (printer 1)   http://localhost:21080  (printer 2)
 
 services:
   printer:
@@ -9,10 +9,10 @@ services:
     container_name: virtualprinter
     command: ["--name", "Virtual Printer"]
     ports:
-      - "19100:19100"   # raw / JetDirect
-      - "10515:10515"   # LPD
-      - "10631:10631"   # IPP
-      - "10080:10080"   # dashboard
+      - "20100:20100"   # raw / JetDirect
+      - "11515:11515"   # LPD
+      - "11631:11631"   # IPP
+      - "11080:11080"   # dashboard
     volumes:
       - printer_jobs:/jobs
       # - ./web:/app/web:ro   # uncomment to customize the dashboard (edit ./web, refresh the browser)
@@ -24,20 +24,20 @@ services:
       dockerfile: Dockerfile.snmp
     container_name: virtualprinter-snmp
     ports:
-      - "10161:10161/udp"
+      - "11161:11161/udp"
     restart: unless-stopped
 
-  # Second printer on shifted ports (offset 20000), starting in the paper-out state.
+  # Second printer on shifted ports (offset 21000), starting in the paper-out state.
   printer2:
     profiles: ["multi"]
     build: .
     container_name: virtualprinter2
-    command: ["--offset", "20000", "--name", "Virtual Receipt Printer", "--state", "paperout"]
+    command: ["--offset", "21000", "--name", "Virtual Receipt Printer", "--state", "paperout"]
     ports:
-      - "29100:29100"
-      - "20515:20515"
-      - "20631:20631"
-      - "20080:20080"
+      - "30100:30100"
+      - "21515:21515"
+      - "21631:21631"
+      - "21080:21080"
     volumes:
       - printer2_jobs:/jobs
     restart: unless-stopped

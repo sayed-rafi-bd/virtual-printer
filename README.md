@@ -8,7 +8,7 @@ dependencies; only the web dashboard needs [Jinja2](https://jinja.palletsproject
 
 ```bash
 pip install -r requirements.txt          # Jinja2, for the dashboard only
-python3 virtualprinter.py                   # high ports, no root: 19100, 10515, 10631, 10080
+python3 virtualprinter.py                   # high ports, no root: 20100, 11515, 11631, 11080
 sudo python3 virtualprinter.py --offset 0   # standard ports: 9100, 515, 631, 80
 ```
 
@@ -16,7 +16,7 @@ Received jobs are saved in `./jobs/` (file type sniffed: pdf, ps, pjl, zpl, escp
 
 ## Dashboard
 
-The server prints `Dashboard: http://localhost:<port>/` on start (port 10080 by default, or 80 with
+The server prints `Dashboard: http://localhost:<port>/` on start (port 11080 by default, or 80 with
 `--offset 0`); add `--open` to launch it in your browser automatically. The page shows
 live stats (address, uptime, jobs, data received), copyable connection URIs for raw/LPD/IPP,
 buttons to switch the error state, and a live job list (newest first, auto-refresh every 3s)
@@ -99,16 +99,16 @@ dark-mode variant). Write full class names in templates; Tailwind cannot see nam
 
 | Protocol | Port | Provided by |
 |---|---|---|
-| Raw / JetDirect (AppSocket) | 19100 | `virtualprinter.py` |
-| LPD / LPR | 10515 | `virtualprinter.py` |
-| IPP (HTTP transport) | 10631 | `virtualprinter.py` (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs) |
-| HTTP embedded page | 10080 | `virtualprinter.py` |
+| Raw / JetDirect (AppSocket) | 20100 | `virtualprinter.py` |
+| LPD / LPR | 11515 | `virtualprinter.py` |
+| IPP (HTTP transport) | 11631 | `virtualprinter.py` (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs) |
+| HTTP embedded page | 11080 | `virtualprinter.py` |
 | mDNS / Bonjour / AirPrint discovery | 5353/udp | `setup.sh avahi` |
-| SMB / Windows printer sharing | 445 | `setup.sh cups samba` (SMB -> CUPS -> raw 19100 -> Virtual Printer) |
-| SNMP Printer-MIB | 10161/udp | `setup.sh snmp` + `public.snmprec` |
+| SMB / Windows printer sharing | 445 | `setup.sh cups samba` (SMB -> CUPS -> raw 20100 -> Virtual Printer) |
+| SNMP Printer-MIB | 11161/udp | `setup.sh snmp` + `public.snmprec` |
 | USB | - | `setup.sh usb` (kernel `dummy_hcd` + `g_printer`) |
 
-Ports above are the defaults (`--offset 10000`); use `--offset 0` for the standard 9100/515/631/80.
+Ports above are the defaults (`--offset 11000`); use `--offset 0` for the standard 9100/515/631/80.
 
 Not included: WS-Discovery/WSD (3702), IPPS/TLS, FTP printing, Bluetooth.
 
@@ -124,7 +124,7 @@ top of `virtualprinter.py` to match the device you are emulating.
 ## Error injection
 
 ```bash
-curl 'http://localhost:10080/set?state=paperout'   # ok | paperout | jam | offline | hang | drop
+curl 'http://localhost:11080/set?state=paperout'   # ok | paperout | jam | offline | hang | drop
 ```
 
 `hang` accepts the connection and never answers (timeout tests); `drop` closes immediately.
@@ -134,30 +134,30 @@ Start in a state with `--state jam`.
 
 ```bash
 # raw job
-printf 'hello' | nc -q1 localhost 19100
+printf 'hello' | nc -q1 localhost 20100
 # PJL status
-printf '\033%%-12345X@PJL INFO STATUS\r\n\033%%-12345X' | nc -q2 localhost 19100 | cat -v
+printf '\033%%-12345X@PJL INFO STATUS\r\n\033%%-12345X' | nc -q2 localhost 20100 | cat -v
 # ESC/POS paper sensor query
-printf '\x10\x04\x04' | nc -q1 localhost 19100 | xxd
+printf '\x10\x04\x04' | nc -q1 localhost 20100 | xxd
 # ZPL status
-printf '~HS' | nc -q1 localhost 19100
+printf '~HS' | nc -q1 localhost 20100
 # LPD
-lpr -H localhost:10515 -P anyqueue somefile.txt
+lpr -H localhost:11515 -P anyqueue somefile.txt
 # IPP
-ipptool -tv ipp://localhost:10631/ipp/print get-printer-attributes.test
-ipptool -tv -f somefile.pdf ipp://localhost:10631/ipp/print print-job.test
+ipptool -tv ipp://localhost:11631/ipp/print get-printer-attributes.test
+ipptool -tv -f somefile.pdf ipp://localhost:11631/ipp/print print-job.test
 # SNMP (after setup.sh snmp)
-snmpwalk -v2c -c public localhost:10161 1.3.6.1.2.1.43
+snmpwalk -v2c -c public localhost:11161 1.3.6.1.2.1.43
 ```
 
 ## Docker
 
 ```bash
-docker compose up --build              # printer (19100, 10515, 10631) + SNMP (10161/udp)
-docker compose --profile multi up      # also a second printer on ports 29100/20515/20631
+docker compose up --build              # printer (20100, 11515, 11631) + SNMP (11161/udp)
+docker compose --profile multi up      # also a second printer on ports 30100/21515/21631
 ```
 
-- Dashboard: <http://localhost:10080> (printer 1), <http://localhost:20080> (printer 2).
+- Dashboard: <http://localhost:11080> (printer 1), <http://localhost:21080> (printer 2).
 - Jobs are stored in Docker named volumes (`printer_jobs`, `printer2_jobs`), so they survive
   `docker compose down` and rebuilds. `docker compose down -v` deletes them. To get files out:
   download them from the dashboard, or run

@@ -2,18 +2,18 @@
 """
 fakeprinter.py - multi-protocol fake network printer (Python 3.8+, stdlib only).
 
-Listens on (default --offset 10000, so no root is needed):
-  19100  Raw / JetDirect  (also answers PJL, ESC/POS and ZPL status queries)
-  10515  LPD / LPR
-  10631  IPP  (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs, ...)
-  10080  HTTP status page + state control  (GET /set?state=jam)
+Listens on (default --offset 11000, so no root is needed):
+  20100  Raw / JetDirect  (also answers PJL, ESC/POS and ZPL status queries)
+  11515  LPD / LPR
+  11631  IPP  (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs, ...)
+  11080  HTTP status page + state control  (GET /set?state=jam)
 
 Every received job is saved under ./jobs/.
 
-Run:   python3 fakeprinter.py                 (high ports: 19100, 10515, 10631, 10080)
+Run:   python3 fakeprinter.py                 (high ports: 20100, 11515, 11631, 11080)
        sudo python3 fakeprinter.py --offset 0    (standard ports: 9100, 515, 631, 80)
 
-States (change at runtime with  curl 'http://localhost:10080/set?state=jam'):
+States (change at runtime with  curl 'http://localhost:11080/set?state=jam'):
   ok        ready
   paperout  status queries report paper out
   jam       status queries report a paper jam
@@ -636,7 +636,7 @@ class TCP(socketserver.ThreadingTCPServer):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--offset", type=int, default=10000, help="add to every port (default 10000 = high ports, no root; use 0 for the standard 9100/515/631/80)")
+    ap.add_argument("--offset", type=int, default=11000, help="add to every port (default 11000 = high ports, no root; use 0 for the standard 9100/515/631/80)")
     ap.add_argument("--jobs", default="jobs", help="directory for received jobs")
     ap.add_argument("--state", default="ok", choices=STATES)
     ap.add_argument("--name", default=CFG["name"])
