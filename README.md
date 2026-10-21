@@ -14,6 +14,8 @@ sudo python3 virtualprinter.py --offset 0   # standard ports: 9100, 515, 631, 80
 
 Received jobs are saved in `./jobs/` (file type sniffed: pdf, ps, pjl, zpl, escpos, ...).
 
+On Windows, see [Add the printer in Windows (PowerShell)](#add-the-printer-in-windows-powershell) to install it as a real printer queue.
+
 ## Dashboard
 
 The server prints `Dashboard: http://localhost:<port>/` on start (port 11080 by default, or 80 with
@@ -149,6 +151,115 @@ ipptool -tv -f somefile.pdf ipp://localhost:11631/ipp/print print-job.test
 # SNMP (after setup.sh snmp)
 snmpwalk -v2c -c public localhost:11161 1.3.6.1.2.1.43
 ```
+
+## Add the printer in Windows (PowerShell)
+
+Windows can print to the Virtual Printer through a Standard TCP/IP port (raw / JetDirect), which
+is the most reliable method. Everything below uses the built-in `PrintManagement` cmdlets, so
+nothing extra needs to be installed.
+
+### 1. Start the printer
+
+On the machine that will run it (Windows, Linux or Docker):
+
+```powershell
+pip install -r requirements.txt
+python virtualprinter.py                 # high ports, no admin: raw 20100, LPD 11515, IPP 11631, dashboard 11080
+python virtualprinter.py --offset 0      # standard ports 9100/515/631/80 (run PowerShell as Administrator)
+```
+
+Or with Docker: `docker compose up --build`. Check <http://localhost:11080> loads before continuing.
+If the printer runs on another machine, use its LAN IP instead of `127.0.0.1` below, and allow
+the port through that machine's firewall.
+
+### 2. Add it as a raw TCP/IP printer
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+# --- settings: change these to match how you started the printer ---
+$PrinterName = "Virtual Printer"
+$HostAddress = "127.0.0.1"     # IP of the machine running virtualprinter.py
+$RawPort     = 20100           # 20100 by default, 9100 with --offset 0
+$PortName    = "VP_${HostAddress}_$RawPort"
+
+# 1) create the TCP/IP port
+if (-not (Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue)) {
+    Add-PrinterPort -Name $PortName -PrinterHostAddress $HostAddress -PortNumber $RawPort
+}
+
+# 2) create the printer with a driver built into Windows
+#    "Generic / Text Only" is the simplest: it sends plain text, so jobs are easy to read
+Add-Printer -Name $PrinterName -DriverName "Generic / Text Only" -PortName $PortName
+
+# 3) confirm
+Get-Printer -Name $PrinterName | Format-List Name, DriverName, PortName, PrinterStatus
+```
+
+To get PDF-style or PostScript output instead of plain text, use a different built-in driver:
+
+```powershell
+Get-PrinterDriver | Select-Object Name        # list the drivers available on this PC
+Add-Printer -Name "Virtual Printer (PS)" -DriverName "Microsoft PS Class Driver" -PortName $PortName
+```
+
+### 3. Send a test print
+
+```powershell
+"Hello from PowerShell" | Out-Printer -Name "Virtual Printer"
+
+# or print a file
+Get-Content .\somefile.txt | Out-Printer -Name "Virtual Printer"
+```
+
+The job appears in `./jobs/` and on the dashboard (<http://localhost:11080>) within a few seconds.
+To check what Windows thinks of the queue: `Get-PrintJob -PrinterName "Virtual Printer"`.
+
+### Alternative: add it over IPP
+
+IPP needs no manual port or driver choice (Windows uses its built-in IPP class driver). The
+URL must match the port the server is listening on:
+
+```powershell
+Add-Printer -ConnectionName "http://127.0.0.1:11631/ipp/print"
+```
+
+Use port `631` instead of `11631` if you started the server with `--offset 0`. If this fails with
+an "operation could not be completed" error, enable the Windows IPP client first (see below).
+
+### Alternative: add it over LPD / LPR
+
+Windows' LPR port monitor only talks to the standard port 515, so this works only with
+`--offset 0`. Enable the feature once, then add the port:
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName Printing-LPRPortMonitor -NoRestart   # Admin; may need a reboot
+
+Add-PrinterPort -Name "VP_LPR" -LprHostAddress "127.0.0.1" -LprQueueName "queue" -LprByteCounting
+Add-Printer -Name "Virtual Printer (LPR)" -DriverName "Generic / Text Only" -PortName "VP_LPR"
+```
+
+### Remove the printer
+
+```powershell
+Remove-Printer     -Name "Virtual Printer"
+Remove-PrinterPort -Name "VP_127.0.0.1_20100"
+```
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `Add-Printer : The specified driver does not exist` | Run `Get-PrinterDriver` and use one of the listed names, or install the driver with `Add-PrinterDriver -Name "Generic / Text Only"`. |
+| `Add-PrinterPort` / `Add-Printer` says access denied | Re-open PowerShell with **Run as administrator**. |
+| Jobs stay in the queue or the printer shows *Offline* | Confirm the server is running and the port is right: `Test-NetConnection 127.0.0.1 -Port 20100`. Also check the dashboard error state is **ok** (not `offline`, `hang` or `drop`). |
+| Works locally but not from another PC | Allow the port through the Windows/Linux firewall on the server machine, e.g. `New-NetFirewallRule -DisplayName "Virtual Printer raw" -Direction Inbound -Protocol TCP -LocalPort 20100 -Action Allow`. |
+| Windows keeps sending to the wrong port | Remove the old port first (`Remove-PrinterPort`), then recreate it; an existing port keeps its old settings. |
+| IPP: `Add-Printer -ConnectionName` fails | Enable the client: `Enable-WindowsOptionalFeature -Online -FeatureName Printing-Foundation-InternetPrinting-Client -NoRestart`, then retry. |
+| `python` is not recognized | Install Python from python.org (tick *Add to PATH*), or use `py virtualprinter.py`. |
+
+To test the error states from Windows (paper out, jam, ...), see [Error injection](#error-injection);
+`Invoke-WebRequest "http://localhost:11080/set?state=paperout"` does the same as `curl`.
 
 ## Docker
 
