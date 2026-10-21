@@ -2,19 +2,19 @@
 """
 virtualprinter.py - Virtual Printer: a multi-protocol virtual network printer (Python 3.8+; the printer is stdlib-only, the web dashboard needs Jinja2).
 
-Listens on:
-  9100  Raw / JetDirect  (also answers PJL, ESC/POS and ZPL status queries)
-  515   LPD / LPR
-  631   IPP  (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs, ...)
-  80    HTTP status page + state control  (GET /set?state=jam)
+Listens on (default --offset 10000, so no root is needed):
+  19100  Raw / JetDirect  (also answers PJL, ESC/POS and ZPL status queries)
+  10515  LPD / LPR
+  10631  IPP  (Print-Job, Validate-Job, Get-Printer-Attributes, Get-Jobs, ...)
+  10080  HTTP status page + state control  (GET /set?state=jam)
 
 Every received job is saved under ./jobs/.  The dashboard is rendered with Jinja2 from ./web
 (see README: "Customizing the dashboard").
 
-Run:   sudo python3 virtualprinter.py            (real ports, needs root for <1024)
-       python3 virtualprinter.py --offset 10000  (no root: 19100, 10515, 10631, 10080)
+Run:   python3 virtualprinter.py                 (high ports: 19100, 10515, 10631, 10080)
+       sudo python3 virtualprinter.py --offset 0    (standard ports: 9100, 515, 631, 80)
 
-States (change at runtime with  curl 'http://localhost/set?state=jam'):
+States (change at runtime with  curl 'http://localhost:10080/set?state=jam'):
   ok        ready
   paperout  status queries report paper out
   jam       status queries report a paper jam
@@ -619,7 +619,7 @@ class TCP(socketserver.ThreadingTCPServer):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--offset", type=int, default=0, help="add to every port (e.g. 10000 to avoid root)")
+    ap.add_argument("--offset", type=int, default=10000, help="add to every port (default 10000 = high ports, no root; use 0 for the standard 9100/515/631/80)")
     ap.add_argument("--jobs", default="jobs", help="directory for received jobs")
     ap.add_argument("--state", default="ok", choices=STATES)
     ap.add_argument("--name", default=CFG["name"])
@@ -649,7 +649,7 @@ def main():
         try:
             srv = make(p)
         except PermissionError:
-            print(f"! {name}: port {p} needs root. Re-run with sudo or --offset 10000", file=sys.stderr)
+            print(f"! {name}: port {p} needs root. Re-run with sudo or use a higher --offset", file=sys.stderr)
             continue
         except OSError as e:
             print(f"! {name}: port {p}: {e}", file=sys.stderr)
