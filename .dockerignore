@@ -1,0 +1,7 @@
+target/
+jobs/
+.git/
+*.zip
+*.tar.gz
+Dockerfile
+docker-compose.yml

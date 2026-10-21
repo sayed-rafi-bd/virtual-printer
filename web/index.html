@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Printer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9V2h12v7'/%3E%3Cpath d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/%3E%3Crect x='6' y='14' width='12' height='8'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f8fafc; --card: #ffffff; --line: #e2e8f0; --text: #0f172a; --muted: #64748b;
+  --accent: #4f46e5; --accent-bg: #eef2ff;
+  --ok: #10b981; --paperout: #f59e0b; --jam: #ef4444; --offline: #94a3b8; --hang: #8b5cf6; --drop: #ec4899;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #020617; --card: #0f172a; --line: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --accent: #818cf8; --accent-bg: #1e1b4b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1000px; margin: 0 auto; padding: 28px 18px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 22px; }
+h1 { margin: 0; font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
+h2 { margin: 0 0 14px; font-size: 15px; }
+.muted { color: var(--muted); margin: 2px 0 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+.grid { display: grid; gap: 14px; margin-top: 14px; }
+.stats { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 0; }
+.two { grid-template-columns: 3fr 2fr; align-items: start; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+.label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.value { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-weight: 600; font-size: 13px; background: var(--card); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--offline); flex: none; }
+.ep { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.ep:first-of-type { border-top: 0; padding-top: 0; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+button { font: inherit; font-size: 12.5px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 9px; padding: 5px 11px; cursor: pointer; flex: none; }
+button:hover { border-color: var(--muted); }
+.states { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.state { text-align: left; border-radius: 12px; padding: 9px 12px; display: flex; flex-direction: column; gap: 1px; font-size: 13.5px; }
+.state b { display: flex; align-items: center; gap: 8px; }
+.state small { color: var(--muted); font-size: 12px; }
+.state.active { border-color: var(--c); box-shadow: 0 0 0 1px var(--c); }
+.note { margin: 14px 0 0; font-size: 12px; color: var(--muted); }
+.tablewrap { overflow-x: auto; margin: 0 -20px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 20px; white-space: nowrap; }
+td { padding: 10px 20px; border-top: 1px solid var(--line); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+a { color: var(--accent); }
+.chip { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; background: var(--accent-bg); color: var(--accent); }
+.empty { text-align: center; color: var(--muted); padding: 28px 0 8px; }
+.err { color: var(--jam); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="name">Virtual Printer</h1>
+      <p class="muted">Virtual network printer · live dashboard</p>
+    </div>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pill-text">Connecting…</span></span>
+  </header>
+
+  <div class="grid stats">
+    <div class="card"><div class="label">State</div><div class="value" id="s-state">–</div></div>
+    <div class="card"><div class="label">Uptime</div><div class="value" id="s-uptime">–</div></div>
+    <div class="card"><div class="label">Jobs received</div><div class="value" id="s-jobs">–</div></div>
+    <div class="card"><div class="label">Data received</div><div class="value" id="s-size">–</div></div>
+  </div>
+
+  <div class="grid two">
+    <section class="card">
+      <h2>Connect to this printer</h2>
+      <div id="endpoints"></div>
+    </section>
+    <section class="card">
+      <h2>Simulate a state</h2>
+      <div class="states" id="states"></div>
+      <p class="note"><b>paperout / jam / offline</b> change the status replies. <b>hang</b> accepts connections and never answers; <b>drop</b> closes them immediately.</p>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <h2>Received jobs <span class="muted" id="jobs-note"></span></h2>
+    <div class="tablewrap">
+      <table id="jobs-table" hidden>
+        <thead><tr><th>ID</th><th>Time (UTC)</th><th>Protocol</th><th>Type</th><th>File</th><th class="num">Size</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty">
+      <b>No jobs received yet</b><br>Print to any endpoint above to see it appear here.<br>
+      <code id="nc-hint"></code>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const STATES = [
+  ["ok", "Ready", "Ready to print"], ["paperout", "Paper out", "Reports paper out"],
+  ["jam", "Paper jam", "Reports a paper jam"], ["offline", "Offline", "Reports offline"],
+  ["hang", "Hanging", "Never answers"], ["drop", "Dropping", "Closes connections"],
+];
+const $ = (id) => document.getElementById(id);
+const cssVar = (s) => "var(--" + s + ")";
+
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v; else if (k.startsWith("on")) e[k] = v; else e.setAttribute(k, v);
+  }
+  for (const kid of kids) e.append(kid);
+  return e;
+}
+
+function fmtSize(n) {
+  if (n < 1024) return n + " B";
+  for (const u of ["KB", "MB", "GB"]) { n /= 1024; if (n < 1024 || u === "GB") return n.toFixed(1) + " " + u; }
+}
+
+function copyText(text, btn) {
+  const done = () => { const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = old), 1200); };
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, () => {}); return; }
+  const t = el("textarea", { style: "position:fixed;opacity:0" }); t.value = text; document.body.append(t); t.select();
+  try { document.execCommand("copy"); done(); } catch (e) {} t.remove();
+}
+
+// state buttons are built once, then only toggled
+const stateButtons = {};
+for (const [name, , desc] of STATES) {
+  const b = el("button", { class: "state", type: "button", style: "--c:" + cssVar(name), onclick: () => setState(name) },
+    el("b", {}, el("span", { class: "dot", style: "background:" + cssVar(name) }), name), el("small", { text: desc }));
+  stateButtons[name] = b; $("states").append(b);
+}
+
+async function setState(name) {
+  try { await fetch("/set?state=" + name, { cache: "no-store" }); } catch (e) {}
+  refresh();
+}
+
+let endpointsKey = "", jobsCount = -1;
+
+function renderEndpoints(ports) {
+  const host = location.hostname, port = (n) => (ports.find((p) => p.name === n) || {}).port;
+  const list = [["Dashboard", location.origin + "/"]];
+  if (port("raw/JetDirect")) list.push(["Raw / JetDirect", "socket://" + host + ":" + port("raw/JetDirect")]);
+  if (port("LPD")) list.push(["LPD", "lpd://" + host + ":" + port("LPD") + "/queue"]);
+  if (port("IPP")) list.push(["IPP", "ipp://" + host + ":" + port("IPP") + "/ipp/print"]);
+  const key = JSON.stringify(list);
+  if (key === endpointsKey) return;
+  endpointsKey = key;
+  const box = $("endpoints"); box.replaceChildren();
+  for (const [label, url] of list) {
+    const btn = el("button", { type: "button", text: "Copy" });
+    btn.onclick = () => copyText(url, btn);
+    box.append(el("div", { class: "ep" }, el("div", {}, el("div", { class: "label", text: label }), el("code", { text: url })), btn));
+  }
+  const raw = port("raw/JetDirect");
+  $("nc-hint").textContent = raw ? "echo hello | nc " + host + " " + raw : "";
+}
+
+function renderJobs(s) {
+  if (s.jobs_count === jobsCount) return;
+  jobsCount = s.jobs_count;
+  const body = $("jobs"); body.replaceChildren();
+  for (const j of s.jobs) {
+    const ext = j.file.includes(".") ? j.file.split(".").pop() : "-";
+    body.append(el("tr", {},
+      el("td", { class: "muted", text: "#" + j.id }), el("td", { class: "muted", text: j.time }),
+      el("td", {}, el("span", { class: "chip", text: j.proto })), el("td", { class: "mono muted", text: ext }),
+      el("td", { class: "mono" }, el("a", { href: "/jobs/" + encodeURIComponent(j.file), download: j.file, text: j.file })),
+      el("td", { class: "num", text: fmtSize(j.size) })));
+  }
+  $("jobs-table").hidden = s.jobs.length === 0;
+  $("empty").hidden = s.jobs.length !== 0;
+  $("jobs-note").textContent = s.jobs.length ? "· " + s.jobs_count + " total, newest first" + (s.jobs_count > s.jobs.length ? ", showing latest " + s.jobs.length : "") : "";
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    const info = STATES.find((x) => x[0] === s.state) || STATES[0];
+    document.title = s.name + " · Virtual Printer";
+    $("name").textContent = s.name;
+    $("pill-text").textContent = info[1];
+    $("pill").firstChild.style.background = cssVar(s.state);
+    $("pill").classList.remove("err");
+    $("s-state").textContent = info[1];
+    $("s-uptime").textContent = s.uptime;
+    $("s-jobs").textContent = s.jobs_count;
+    $("s-size").textContent = fmtSize(s.jobs_size);
+    for (const [name, b] of Object.entries(stateButtons)) b.classList.toggle("active", name === s.state);
+    renderEndpoints(s.ports);
+    renderJobs(s);
+  } catch (e) {
+    $("pill-text").textContent = "Connection lost";
+    $("pill").firstChild.style.background = cssVar("jam");
+  }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

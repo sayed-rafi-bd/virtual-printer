@@ -1,21 +1,23 @@
-FROM python:3.12-slim
+# ---- build ---------------------------------------------------------------
+# Pin the Debian release on both stages so the binary's glibc matches the runtime image.
+FROM rust:1-slim-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY web ./web
+RUN cargo build --release --locked
 
-WORKDIR /app
+# ---- runtime -------------------------------------------------------------
+FROM debian:bookworm-slim
+RUN useradd --system --uid 10001 --no-create-home printer \
+ && mkdir /jobs && chown printer /jobs
+COPY --from=build /src/target/release/virtualprinter /usr/local/bin/virtualprinter
 
-# Jinja2 renders the web dashboard (the printer itself has no dependencies)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY virtualprinter.py .
-COPY web/ web/
-RUN mkdir /jobs
-
-# raw/JetDirect, LPD, IPP, dashboard
-EXPOSE 20100 11515 11631 11080
+USER printer
 VOLUME /jobs
+# raw/JetDirect, LPD, IPP, HTTP dashboard (standard ports; binding <1024 as non-root needs
+# net.ipv4.ip_unprivileged_port_start=0, which Docker sets by default and docker-compose.yml sets explicitly)
+EXPOSE 9100 515 631 80
 
-HEALTHCHECK --interval=15s --timeout=3s --start-period=3s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11080/', timeout=2)" || exit 1
-
-# extra flags go in `command:` / after the image name, e.g. --name "Receipt Printer" --state jam
-ENTRYPOINT ["python", "-u", "virtualprinter.py", "--jobs", "/jobs"]
+ENTRYPOINT ["virtualprinter", "--offset", "0", "--jobs", "/jobs"]
+CMD []

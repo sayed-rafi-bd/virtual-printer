@@ -1,3 +1,0 @@
-# Only the web dashboard needs a dependency. The printer itself (raw/JetDirect, LPD, IPP,
-# PJL/ESC-POS/ZPL replies) is stdlib-only and keeps working if Jinja2 is not installed.
-jinja2>=3.0

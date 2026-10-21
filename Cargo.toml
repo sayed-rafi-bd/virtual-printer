@@ -1,0 +1,12 @@
+[package]
+name = "virtualprinter"
+version = "0.1.0"
+edition = "2021"
+description = "Virtual network printer: Raw/JetDirect, LPD and IPP (Rust port of virtualprinter.py, no dashboard)"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

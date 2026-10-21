@@ -1,49 +1,19 @@
-# docker compose up --build            -> printer + SNMP
-# docker compose --profile multi up    -> also start a second printer
-#
-# Dashboard:  http://localhost:11080  (printer 1)   http://localhost:21080  (printer 2)
-
 services:
-  printer:
+  virtualprinter:
     build: .
+    image: virtualprinter:latest
     container_name: virtualprinter
-    command: ["--name", "Virtual Printer"]
+    restart: unless-stopped
     ports:
-      - "20100:20100"   # raw / JetDirect
-      - "11515:11515"   # LPD
-      - "11631:11631"   # IPP
-      - "11080:11080"   # dashboard
+      - "9100:9100"   # raw / JetDirect
+      - "515:515"     # LPD
+      - "631:631"     # IPP  (change the left side if the host already runs CUPS)
+      - "8080:80"     # dashboard -> http://localhost:8080/
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0   # lets the non-root user bind 80/515/631
     volumes:
-      - printer_jobs:/jobs
-      # - ./web:/app/web:ro   # uncomment to customize the dashboard (edit ./web, refresh the browser)
-    restart: unless-stopped
+      - jobs:/jobs
+    # extra options go here, e.g.:  command: ["--name", "Front Desk", "--state", "ok"]
 
-  snmp:
-    build:
-      context: .
-      dockerfile: Dockerfile.snmp
-    container_name: virtualprinter-snmp
-    ports:
-      - "11161:11161/udp"
-    restart: unless-stopped
-
-  # Second printer on shifted ports (offset 21000), starting in the paper-out state.
-  printer2:
-    profiles: ["multi"]
-    build: .
-    container_name: virtualprinter2
-    command: ["--offset", "21000", "--name", "Virtual Receipt Printer", "--state", "paperout"]
-    ports:
-      - "30100:30100"
-      - "21515:21515"
-      - "21631:21631"
-      - "21080:21080"
-    volumes:
-      - printer2_jobs:/jobs
-    restart: unless-stopped
-
-# Named volumes: managed by Docker, survive `docker compose down` and rebuilds.
-# (`docker compose down -v` deletes them.)
 volumes:
-  printer_jobs:
-  printer2_jobs:
+  jobs:
