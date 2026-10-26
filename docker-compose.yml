@@ -8,7 +8,7 @@ services:
       - "9100:9100"   # raw / JetDirect
       - "515:515"     # LPD
       - "631:631"     # IPP  (change the left side if the host already runs CUPS)
-      - "8080:80"     # dashboard -> http://localhost:8080/
+      - "7070:80"     # dashboard
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0   # lets the non-root user bind 80/515/631
     volumes:
